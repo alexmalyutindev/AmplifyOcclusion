@@ -1,0 +1,9 @@
+{
+  "name": "AmplifyOcclusion.Editor",
+  "includePlatforms": [
+    "Editor"
+  ],
+  "references": [
+    "AmplifyOcclusion.Runtime"
+  ]
+}
