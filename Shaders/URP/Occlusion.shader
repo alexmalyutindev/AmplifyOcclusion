@@ -99,6 +99,50 @@ Shader "Hidden/Amplify Occlusion/URP/Occlusion"
             ENDHLSL
         }
 
-        // TODO: Upsampling 
+        // TODO: Upsampling
+        Pass
+        {
+            Name "CombineDownsampledOcclusionDepth"
+
+            HLSLPROGRAM
+            #pragma vertex Vertex
+            #pragma fragment Fragment
+            #pragma target 3.0
+
+            #include "GTAO.hlsl"
+
+            struct Attributes
+            {
+                float2 texcoord : TEXCOORD0;
+                float4 positionOS : POSITION;
+            };
+
+            struct Varyings
+            {
+                float2 uv : TEXCOORD0;
+                float4 positionCS : SV_POSITION;
+            };
+
+            Varyings Vertex(Attributes input)
+            {
+                Varyings output;
+                output.positionCS = float4(input.positionOS.xy * 2.0f - 1.0f, 0.0f, 1.0f);
+
+                output.uv = input.texcoord;
+                #if UNITY_UV_STARTS_AT_TOP
+                output.uv.y = 1.0f - output.uv.y;
+                #endif
+
+                return output;
+            }
+
+            half2 Fragment(Varyings input) : SV_Target
+            {
+                const half2 screenPos = input.uv;
+                const half depthSample = SampleSceneDepth_LOD0(screenPos);
+                return ComputeCombineDownsampledOcclusionDepth(screenPos, depthSample);
+            }
+            ENDHLSL
+        }
     }
 }

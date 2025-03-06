@@ -34,7 +34,7 @@ inline half4 CrossBilateralWeight(const half4 r, half4 d, half d0, const half sh
 
 half2 FetchOcclusionDepth(half2 uv)
 {
-    return SAMPLE_TEXTURE2D_LOD(_OcclusionDepth, sampler_LinearClamp, uv, 0);
+    return SAMPLE_TEXTURE2D_LOD(_OcclusionDepth, sampler_PointClamp, uv, 0);
 }
 
 // BLUR FUNCTIONS

@@ -10,14 +10,16 @@ namespace AmplifyOcclusion
         private const string ScreenSpaceOcclusionTexture = "_ScreenSpaceOcclusionTexture";
         private static readonly int ScreenSpaceOcclusionTextureId = Shader.PropertyToID(ScreenSpaceOcclusionTexture);
 
-        private const string k_AmbientOcclusionParamName = "_AmbientOcclusionParam";
-        private static readonly int s_AmbientOcclusionParamID = Shader.PropertyToID(k_AmbientOcclusionParamName);
+        private const string AmbientOcclusionParamName = "_AmbientOcclusionParam";
+        private static readonly int AmbientOcclusionParamID = Shader.PropertyToID(AmbientOcclusionParamName);
 
         private readonly AmplifyOcclusionRenderFeature.Settings _settings;
         private Material _occlusion;
-        private RTHandle _occlusionBuffer;
-        private RTHandle _occlusionBlurTempBuffer;
         private Material _blur;
+
+        private RTHandle _gtaoBuffer;
+        private RTHandle _gtoaTempBuffer0;
+        private RTHandle _gtoaTempBuffer1;
 
         public AmplifyOcclusionRenderPass(AmplifyOcclusionRenderFeature.Settings settings)
         {
@@ -36,11 +38,6 @@ namespace AmplifyOcclusion
         {
             var width = cameraTextureDescriptor.width;
             var height = cameraTextureDescriptor.height;
-            if (_settings.Downsample)
-            {
-                width /= 2;
-                height /= 2;
-            }
 
             var desc = new RenderTextureDescriptor(width, height)
             {
@@ -48,13 +45,39 @@ namespace AmplifyOcclusion
                 colorFormat = RenderTextureFormat.RGHalf,
             };
             RenderingUtils.ReAllocateIfNeeded(
-                ref _occlusionBuffer,
+                ref _gtaoBuffer,
                 desc,
                 name: ScreenSpaceOcclusionTexture,
-                wrapMode: TextureWrapMode.Clamp,
-                filterMode: FilterMode.Point
+                wrapMode: TextureWrapMode.Clamp
             );
-            RenderingUtils.ReAllocateIfNeeded(ref _occlusionBlurTempBuffer, desc, name: "_OcclusionBlurTempBuffer");
+            
+            if (_settings.Downsample)
+            {
+                desc.width /= 2;
+                desc.height /= 2;
+                RenderingUtils.ReAllocateIfNeeded(
+                    ref _gtoaTempBuffer0,
+                    desc,
+                    name: "_GTAO_Temp0",
+                    wrapMode: TextureWrapMode.Clamp
+                );
+                RenderingUtils.ReAllocateIfNeeded(
+                    ref _gtoaTempBuffer1,
+                    desc,
+                    name: "_GTAO_Temp1",
+                    wrapMode: TextureWrapMode.Clamp
+                );
+            }
+            else
+            {
+                RenderingUtils.ReAllocateIfNeeded(
+                    ref _gtoaTempBuffer0,
+                    desc,
+                    name: "_GTAO_Temp0",
+                    wrapMode: TextureWrapMode.Clamp
+                );
+                _gtoaTempBuffer1?.Release();
+            }
         }
 
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
@@ -81,8 +104,11 @@ namespace AmplifyOcclusion
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
 
+                var target = !_settings.Downsample ? _gtaoBuffer : _gtoaTempBuffer0;
+                var blurTarget = !_settings.Downsample ? _gtoaTempBuffer0 : _gtoaTempBuffer1;
+                
                 var camera = renderingData.cameraData.camera;
-                var targetRT = _occlusionBuffer.rt;
+                var targetRT = target.rt;
 
                 cmd.SetGlobalFloat(PropertyID._AO_Radius, _settings.Radius);
                 cmd.SetGlobalFloat(PropertyID._AO_PowExponent, _settings.PowerExponent);
@@ -100,17 +126,37 @@ namespace AmplifyOcclusion
                 cmd.SetGlobalMatrix(PropertyID._AO_CameraViewLeft, camera.worldToCameraMatrix);
                 cmd.SetGlobalVector(PropertyID._AO_Target_TexelSize, GetTexelSize(targetRT));
 
+                // Distance Fade
+                if (_settings.FadeEnabled)
+                {
+                    var fadeStart = Mathf.Max(0.0f, _settings.FadeStart);
+                    var fadeLength = Mathf.Max(0.01f, _settings.FadeLength);
+
+                    float rcpFadeLength = 1.0f / fadeLength;
+
+                    cmd.SetGlobalVector(PropertyID._AO_FadeParams, new Vector2(fadeStart, rcpFadeLength));
+                    float invFadeThickness = 1.0f - _settings.FadeToThickness;
+                    cmd.SetGlobalVector(
+                        PropertyID._AO_FadeValues,
+                        new Vector4(
+                            _settings.FadeToIntensity,
+                            _settings.FadeToRadius,
+                            _settings.FadeToPowerExponent,
+                            (1.0f - invFadeThickness * invFadeThickness) * 0.98f
+                        )
+                    );
+                    var fadeToTint = _settings.FadeToTint;
+                    fadeToTint.a = 0.0f;
+                    cmd.SetGlobalColor(PropertyID._AO_FadeToTint, fadeToTint);
+                }
+                else
+                {
+                    cmd.SetGlobalVector(PropertyID._AO_FadeParams, new Vector2(0.0f, 0.0f));
+                }
+
                 cmd.BeginSample("Compute");
                 {
-                    cmd.Blit(null, _occlusionBuffer, _occlusion, 0);
-                    cmd.SetGlobalTexture(ScreenSpaceOcclusionTextureId, _occlusionBuffer);
-
-                    // Set the global SSAO Params
-                    cmd.SetGlobalVector(
-                        s_AmbientOcclusionParamID,
-                        new Vector4(_settings.Intensity, 0f, 0f, _settings.DirectLightIntensity)
-                    );
-                    CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.ScreenSpaceOcclusion, true);
+                    cmd.Blit(null, target, _occlusion, 0);
                 }
                 cmd.EndSample("Compute");
 
@@ -132,14 +178,30 @@ namespace AmplifyOcclusion
 
                     for (int i = 0; i < _settings.BlurPasses; i++)
                     {
-                        cmd.SetGlobalTexture("_OcclusionDepth", _occlusionBuffer);
-                        cmd.Blit(_occlusionBuffer, _occlusionBlurTempBuffer, _blur, 0);
-                        cmd.SetGlobalTexture("_OcclusionDepth", _occlusionBlurTempBuffer);
-                        cmd.Blit(_occlusionBlurTempBuffer, _occlusionBuffer, _blur, 1);
+                        cmd.SetGlobalTexture("_OcclusionDepth", target);
+                        cmd.Blit(target, blurTarget, _blur, 0);
+                        cmd.SetGlobalTexture("_OcclusionDepth", blurTarget);
+                        cmd.Blit(blurTarget, target, _blur, 1);
                     }
 
                     cmd.EndSample("Blur");
                 }
+
+                if (_settings.Downsample)
+                {
+                    cmd.BeginSample("Upsample");
+                    cmd.SetGlobalTexture("_AO_CurrOcclusionDepth", target);
+                    cmd.Blit(target, _gtaoBuffer, _occlusion, 1);
+                    cmd.EndSample("Upsample");
+                }
+                
+                // Set the global SSAO Params
+                cmd.SetGlobalTexture(ScreenSpaceOcclusionTextureId, _gtaoBuffer);
+                cmd.SetGlobalVector(
+                    AmbientOcclusionParamID,
+                    new Vector4(_settings.Intensity, 0f, 0f, _settings.DirectLightIntensity)
+                );
+                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.ScreenSpaceOcclusion, true);
             }
 
             context.ExecuteCommandBuffer(cmd);

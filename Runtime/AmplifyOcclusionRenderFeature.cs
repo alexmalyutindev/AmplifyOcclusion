@@ -36,6 +36,26 @@ namespace AmplifyOcclusion
             [Tooltip("Cache optimization for best performance / quality tradeoff.")]
             public bool CacheAware = true;
 
+            [Header("Distance Fade")]
+            [Tooltip("Control parameters at faraway.")]
+            public bool FadeEnabled = false;
+            [Tooltip("Distance in Unity unities that start to fade.")]
+            public float FadeStart = 100.0f;
+            [Tooltip("Length distance to performe the transition.")]
+            public float FadeLength = 50.0f;
+            [Tooltip("Final Intensity parameter.")]
+            [Range(0, 1)]
+            public float FadeToIntensity = 0.0f;
+            public Color FadeToTint = Color.black;
+            [Tooltip("Final Radius parameter.")]
+            public float FadeToRadius = 2.0f;
+            [Tooltip("Final PowerExponent parameter.")]
+            [Range(0, 16)]
+            public float FadeToPowerExponent = 1.0f;
+            [Tooltip("Final Thickness parameter.")]
+            [Range(0, 1.0f)]
+            public float FadeToThickness = 1.0f;
+
             [Header("Bilateral Blur")]
             public bool BlurEnabled = true;
             [Tooltip("Radius in screen pixels.")]
@@ -97,12 +117,12 @@ namespace AmplifyOcclusion
             {
                 _occlusion = CoreUtils.CreateEngineMaterial(OcclusionShader);
             }
-            
+
             if (_blur == null && BlurShader != null)
             {
                 _blur = CoreUtils.CreateEngineMaterial(BlurShader);
             }
-    
+
             return _occlusion != null && _blur != null;
         }
     }

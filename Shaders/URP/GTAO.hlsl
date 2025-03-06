@@ -1,28 +1,36 @@
-// Amplify Occlusion 2 - Robust Ambient Occlusion for Unity
-// Copyright (c) Amplify Creations, Lda <info@amplify.pt>
-
 #ifndef AMPLIFY_AO_GTAO
 #define AMPLIFY_AO_GTAO
+
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/GlobalSamplers.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
+#include "Common.hlsl"
+
+#define NORMALS_NONE (0)
+#define NORMALS_CAMERA (1)
+#define NORMALS_GBUFFER (2)
+#define NORMALS_GBUFFER_OCTA_ENCODED (3)
 
 #define PIXEL_RADIUS_LIMIT ( 512 )
 #define DEPTH_EPSILON (1e-6)
 #define INTENSITY_THRESHOLD (1e-4)
 
-#if defined( SHADER_API_MOBILE )
-#define DEPTH_SCALE 16376.0
+#define HALF_MAX        65504.0 // (2 - 2^-10) * 2^15
+#define HALF_MAX_MINUS1 65472.0 // (2 - 2^-9) * 2^15
+
+#if defined(SHADER_API_MOBILE)
+#define DEPTH_SCALE (16376.0h)
 #else
-#define DEPTH_SCALE 65504.0
+#define DEPTH_SCALE (65504.0h)
 #endif
+#define ONE_OVER_DEPTH_SCALE (1.0h / DEPTH_SCALE)
 
-#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
-#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
-#include "Common.hlsl"
-
+// Inputs
 half4x4 _AO_CameraViewLeft;
 half4x4 _AO_CameraViewRight;
 
-float4 _AO_Target_TexelSize;
+half4 _AO_Target_TexelSize;
 
 half4 _AO_UVToView;
 half _AO_Bias;
@@ -35,11 +43,6 @@ half4 _AO_Levels;
 half4 _AO_FadeToTint;
 half _AO_PowExponent;
 
-inline half ComputeDistanceFade(const half distance)
-{
-    return saturate(max(0.0, distance - _AO_FadeParams.x) * _AO_FadeParams.y);
-}
-
 float _AO_TemporalMotionSensibility;
 half _AO_TemporalDirections;
 half _AO_TemporalOffsets;
@@ -47,14 +50,28 @@ half _AO_HalfProjScale;
 half _AO_Radius;
 float _AO_BufDepthToLinearEye;
 
-#define NORMALS_NONE ( 0 )
-#define NORMALS_CAMERA ( 1 )
-#define NORMALS_GBUFFER ( 2 )
-#define NORMALS_GBUFFER_OCTA_ENCODED ( 3 )
+half4 _AO_CurrOcclusionDepth_TexelSize;
+TEXTURE2D(_AO_CurrOcclusionDepth);
+
+
+inline float Linear01ToSampledDepth(float linear01Depth)
+{
+    return (1.0 - linear01Depth * _ZBufferParams.y) / (linear01Depth * _ZBufferParams.x);
+}
+
+inline float4 Linear01ToSampledDepth(float4 linear01Depth)
+{
+    return (1.0 - linear01Depth * _ZBufferParams.y) / (linear01Depth * _ZBufferParams.x);
+}
+
+inline half ComputeDistanceFade(const half distance)
+{
+    return saturate(max(0.0, distance - _AO_FadeParams.x) * _AO_FadeParams.y);
+}
 
 float SampleSceneDepth_LOD0(float2 uv)
 {
-    return SAMPLE_TEXTURE2D_LOD(_CameraDepthTexture, sampler_CameraDepthTexture, uv, 0).x;
+    return SAMPLE_DEPTH_TEXTURE_LOD(_CameraDepthTexture, sampler_PointClamp, uv, 0);
 }
 
 // (LocalPosition, DeviceDepth01)
@@ -79,7 +96,6 @@ inline half4 FetchPosition0(const half2 aUV)
     return ConvertDepth(aUV, sampledDepth);
 }
 
-
 inline half4 FetchPosition(const half2 aUV, half aLOD)
 {
     // TODO: Use Depth mip chain.
@@ -87,7 +103,6 @@ inline half4 FetchPosition(const half2 aUV, half aLOD)
 
     return ConvertDepth(aUV, sampledDepth);
 }
-
 
 inline half3 FetchNormalVS(const half2 uv, const uint normalSource)
 {
@@ -117,6 +132,16 @@ inline half3 FetchNormalVS(const half2 uv, const uint normalSource)
 
         return half3(-normalScreenSpace.x, -normalScreenSpace.y, -normalScreenSpace.z);
     }
+}
+
+half2 FetchOcclusionDepth(half2 uv)
+{
+    return SAMPLE_TEXTURE2D_LOD(_AO_CurrOcclusionDepth, sampler_PointClamp, uv, 0).rg;
+}
+
+half2 LoadOcclusionDepth(int2 coords)
+{
+    return LOAD_TEXTURE2D_LOD(_AO_CurrOcclusionDepth, coords, 0).rg;
 }
 
 
@@ -396,6 +421,62 @@ void GetGTAO(
     outRGBA = half4((1).xxx, outAO);
 
     outDepth = DEPTH_SCALE * Linear01Depth(sampledDepth, _ZBufferParams);
+}
+
+
+inline half2 ComputeCombineDownsampledOcclusionDepth(const half2 aScreenPos, const half aDepthSample)
+{
+    const half referenceDepth = LinearEyeDepth(aDepthSample, _ZBufferParams);
+
+    const half intensity = lerp(_AO_Levels.a, _AO_FadeValues.x, ComputeDistanceFade(referenceDepth));
+
+    //UNITY_BRANCH
+    #if defined(UNITY_REVERSED_Z)
+    if ((aDepthSample <= DEPTH_EPSILON) || (intensity < INTENSITY_THRESHOLD))
+    #else
+    if((aDepthSample >= (1.0 - DEPTH_EPSILON)) || (intensity < INTENSITY_THRESHOLD))
+    #endif
+    {
+        return half2(1.0, HALF_MAX);
+    }
+
+    const half2 screenPosPixels = aScreenPos * _AO_CurrOcclusionDepth_TexelSize.zw;
+    const half2 screenPosPixelsFloor = floor(screenPosPixels);
+    const half2 screenPosPixelsDelta = screenPosPixels - screenPosPixelsFloor;
+
+    const half2 sPosAdjusted = screenPosPixelsFloor * _AO_CurrOcclusionDepth_TexelSize.xy
+        + half2(0.5, 0.5) * _AO_CurrOcclusionDepth_TexelSize.xy;
+    const half s = (screenPosPixelsDelta.y < 0.5) ? -1.0 : 1.0;
+
+    half2 odC = FetchOcclusionDepth(sPosAdjusted);
+
+    half2 odL = FetchOcclusionDepth(sPosAdjusted + half2(-1.0, 0.0) * _AO_CurrOcclusionDepth_TexelSize.xy);
+    half2 odR = FetchOcclusionDepth(sPosAdjusted + half2(+1.0, 0.0) * _AO_CurrOcclusionDepth_TexelSize.xy);
+    half2 odM = FetchOcclusionDepth(sPosAdjusted + half2(0.0, s) * _AO_CurrOcclusionDepth_TexelSize.xy);
+
+    const half4 o0123 = half4(odC.x, odL.x, odR.x, odM.x);
+    const half4 d0123 = half4(odC.y, odL.y, odR.y, odM.y);
+
+    half4 depthWeight0123 = saturate(
+        1.0 / (abs(Linear01ToSampledDepth(d0123 * ONE_OVER_DEPTH_SCALE) - (aDepthSample).xxxx) * 32768 + 0.95)
+    );
+
+    const half4 pixelDeltaWeight = half4(
+        screenPosPixelsDelta.x * screenPosPixelsDelta.y + 0.5h,
+        1.0h - screenPosPixelsDelta.x,
+        screenPosPixelsDelta.x,
+        0.80h
+    );
+
+    depthWeight0123 = depthWeight0123 * depthWeight0123 * pixelDeltaWeight;
+
+    half weightOcclusion = dot(o0123, depthWeight0123);
+
+    const half outOcclusion = saturate(weightOcclusion / dot(1.0h, depthWeight0123));
+
+    const half linearDepth01 = Linear01Depth(aDepthSample, _ZBufferParams);
+
+    return half2(outOcclusion, DEPTH_SCALE * linearDepth01);
 }
 
 #endif
