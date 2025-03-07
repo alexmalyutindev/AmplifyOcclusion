@@ -1,9 +1,10 @@
 {
-  "name": "com.amplify.amplify-occlusion-urp",
-  "version": "2.0.8",
-  "displayName": "Amplify Occlusion",
+  "name": "com.amplify.amplify-occlusion-v2",
+  "version": "2.1.0",
+  "displayName": "Amplify Occlusion v2",
   "unity": "2022.3",
   "description": "Amplify Occlusion 2.0 sets out to deliver a new industry standard for fast, high-quality Screen Space Ambient Occlusion in Unity. This FREE UPDATE completely discontinues HBAO-based techniques in favor of the much superior Ground Truth Ambient Occlusion (GTAO), bringing quality and accuracy closer to traditional raytracing.",
+  "author": "Amplify", 
   "dependencies": {
     "com.unity.render-pipelines.universal": "14.0.11"
   }

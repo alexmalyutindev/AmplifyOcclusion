@@ -42,7 +42,9 @@
   all-in-one package, providing a highly-robust and efficient way to simulate ambient occlusion 
   and contact shadowing. Now you can attenuate reflections in occluded areas, make objects 
   actually connect to the world and add real depth to your scenes with minimal effort.
-  
+
+  This version supports Universal Render Pipeline.
+
 # Features
 
   * Ground Truth Ambient Occlusion
@@ -67,62 +69,23 @@
 
   Minimum
 
-    Unity 5.6.0+
+    Unity 2022.3+
+
+# Installation
+
+
 
 # Quick Guide
+Universal Render Pipeline How-to
 
-  Standard How-to
-
-   1) Select and apply “Image Effects/Amplify Occlusion” to your main camera.
-  
-   2) Adjust the Intensity and Radius.
-  
-   3) Adjust the blur values until you are satisfied with the results.
- 
-  Scriptable Render Pipeline How-to
-
-   1) Install packages dependencies:
-     Window -> Package Manager, Advanced -> Show preview packages
-     Select and install:
-      
-      Render-Pipelines.Core
-      Render-Pipelines.High-Definition
-      Render-Pipelines.Lightweight
-      Post Processing
-
-   2) Go to "Assets/Import Package/Custom Package..." and select
-      "Assets/AmplifyOcclusion/Packages/PostProcessingSRP_XXX.unitypackage"
-
-   3) How to set up an SRP project example:
-
-# Note that SRP is not officially supported, use at your own risk.
-
-   3.a) Create SRP asset via Assets menu:
+1) Find the manifest.json file in the Packages folder of your project and add a line to `dependencies` field:
+   * ```"com.amplify.amplify-occlusion-v2": "https://github.com/alexmalyutindev/AmplifyOcclusion.git"```
    
-	   Create/Rendering/High Definition Render Pipeline Asset
+   Or, you can add this package using PackageManager `Add package from git URL` option:
 
-	   OR
+   * ```https://github.com/alexmalyutindev/AmplifyOcclusion.git```
 
-	   Create/Rendering/Lightweight Render Pipeline Asset
-  
-   3.b) Set Edit->ProjectSettings/Player/Other settings/ColorSpace to Linear (necessary for HD SRP)
-  
-   3.c) Edit->ProjectSettings/Graphics/Scriptable Render Pipeline Settings: select the RenderPipelineAsset 
-        created in 3.a)
-  
-   3.d) On Camera, using Lightweight Render Pipeline, disable MSAA
-  
-   3.e) Camera->Add Component->Post-Process Layer
-  
-   3.f) Camera->Post-Process Layer->Layer: Everything (as example)
-  
-   3.g) Camera->Add Component->Post-Process Volume
-  
-   3.h) Camera->Post-Process Volume->Is Global: check (as example)
-  
-   3.i) Camera->Post-Process Volume->Profile: New
-  
-   3.j) Camera->Post-Process Volume->Add effect... AmplifyCreations->AmplifyOcclusion
+2) Find your `UniversalRenderData` file and press `Add Render Feature` and select `Amplify Occlusion Render Feature`.
 
 # Documentation
 
