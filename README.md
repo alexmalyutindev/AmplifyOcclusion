@@ -71,16 +71,12 @@
 
     Unity 2022.3+
 
-# Installation
-
-
-
 # Quick Guide
 Universal Render Pipeline How-to
 
 1) Find the manifest.json file in the Packages folder of your project and add a line to `dependencies` field:
    * ```"com.amplify.amplify-occlusion-v2": "https://github.com/alexmalyutindev/AmplifyOcclusion.git"```
-   
+
    Or, you can add this package using PackageManager `Add package from git URL` option:
 
    * ```https://github.com/alexmalyutindev/AmplifyOcclusion.git```

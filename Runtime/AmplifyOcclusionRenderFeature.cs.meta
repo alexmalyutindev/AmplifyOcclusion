@@ -7,7 +7,7 @@ MonoImporter:
   - OcclusionShader: {fileID: 4800000, guid: eeb76b22d2d149f0a679df912144fd3d, type: 3}
   - BlurShader: {fileID: 4800000, guid: 98860b81585842bd812a8d6470009a5f, type: 3}
   executionOrder: 0
-  icon: {instanceID: 0}
+  icon: {fileID: 2800000, guid: 13ffadb74e0cf6248ac0430224ad2090, type: 3}
   userData: 
   assetBundleName: 
   assetBundleVariant: 
